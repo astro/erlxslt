@@ -158,7 +158,7 @@ int main()
       res = xsltApplyStylesheet(xslt, xml, (const char **)params);
       if (res)
       {
-        xmlDocDumpFormatMemory(res, &xmlbuf, &xmlbufsize, 1);
+        xsltSaveResultToString(&xmlbuf, &xmlbufsize, res, xslt);
         xmlFreeDoc(res);
 
         send_length(xmlbufsize + 1);
