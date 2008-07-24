@@ -60,6 +60,7 @@ start_link() ->
 %%--------------------------------------------------------------------
 init([]) ->
     process_flag(trap_exit, true),
+    %Port = open_port({spawn, "valgrind -v --leak-check=full ./erlxslt"}, [{packet, 4}]),
     Port = open_port({spawn, "./erlxslt"}, [{packet, 4}]),
     {ok, #state{port=Port}}.
 

@@ -4,7 +4,7 @@
 
 run() ->
     test_single(),
-    test_multi(1000).
+    test_multi(10000).
 
 stylesheet() ->
     "<xsl:stylesheet version='1.0' xmlns:xsl='http://www.w3.org/1999/XSL/Transform'>

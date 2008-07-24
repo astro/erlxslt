@@ -127,6 +127,7 @@ int main()
         sbuf[0] = RPL_RESULT;
         write(STDOUT_FILENO, sbuf, 1);
         write(STDOUT_FILENO, xmlbuf, xmlbufsize);
+        xmlFree(xmlbuf);
       }
       else
       {
