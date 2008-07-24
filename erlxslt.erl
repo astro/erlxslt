@@ -116,7 +116,8 @@ handle_info({Port, {data, Data}}, State = #state{port = Port,
 						   requestor = Requestor}) ->
     case Data of
 	[?RPL_RESULT | Result] ->
-	    gen_server:reply(Requestor, {ok, Result});
+	    {Mime, [0 | Body]} = lists:split(string:chr(Result, 0) - 1, Result),
+	    gen_server:reply(Requestor, {ok, Mime, Body});
 	[?RPL_ERROR | Error] ->
 	    gen_server:reply(Requestor, {error, Error})
     end,

@@ -161,9 +161,10 @@ int main()
         xsltSaveResultToString(&xmlbuf, &xmlbufsize, res, xslt);
         xmlFreeDoc(res);
 
-        send_length(xmlbufsize + 1);
+        send_length(xmlbufsize + 1 + strlen(xslt->mediaType) + 1);
         sbuf[0] = RPL_RESULT;
         write(STDOUT_FILENO, sbuf, 1);
+        write(STDOUT_FILENO, xslt->mediaType, strlen(xslt->mediaType) + 1);
         write(STDOUT_FILENO, xmlbuf, xmlbufsize);
         xmlFree(xmlbuf);
       }
