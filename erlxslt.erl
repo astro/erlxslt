@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, set_xslt/3, set_xml/3, process/1, exit/1]).
+-export([start_link/0, set_xslt/3, set_xml/3, set_params/2, process/1, exit/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -21,6 +21,7 @@
 -define(CMD_SET_XSLT, 1).
 -define(CMD_SET_XML, 2).
 -define(CMD_PROCESS, 3).
+-define(CMD_SET_PARAMS, 6).
 -define(RPL_RESULT, 4).
 -define(RPL_ERROR, 5).
 
@@ -33,6 +34,9 @@ set_xslt(X, Uri, Xslt) ->
 
 set_xml(X, Uri, Xml) ->
     gen_server:cast(X, {set_xml, Uri, Xml}).
+
+set_params(X, Params) ->
+    gen_server:cast(X, {set_params, Params}).
 
 process(X) ->
     gen_server:call(X, {process}).
@@ -91,6 +95,13 @@ handle_cast({set_xslt, Uri, Xslt}, State = #state{port = Port}) ->
 handle_cast({set_xml, Uri, Xml}, State = #state{port = Port}) ->
     Buf = lists:append([[?CMD_SET_XML | Uri], [0], Xml]),
     port_command(Port, Buf),
+    {noreply, State};
+handle_cast({set_params, Params}, State = #state{port = Port}) ->
+    Buf = lists:flatten(
+	    lists:map(fun({K, V}) ->
+			      lists:append([K, [0], V, [0]])
+		      end, Params)),
+    port_command(Port, [?CMD_SET_PARAMS | Buf]),
     {noreply, State};
 handle_cast({exit}, State) ->
     {stop, normal, State}.

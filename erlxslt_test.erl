@@ -10,7 +10,7 @@ stylesheet() ->
     "<xsl:stylesheet version='1.0' xmlns:xsl='http://www.w3.org/1999/XSL/Transform'>
 <xsl:output method='text'/>
 <xsl:template match='*[count(*) = 0]'>
-  <xsl:value-of select='concat(name(), \": \", string())'/>
+  <xsl:value-of select='concat($foo, name(), \": \", string())'/>
 </xsl:template>
 </xsl:stylesheet>".
 
@@ -18,6 +18,7 @@ test_single() ->
     {ok, X} = erlxslt:start_link(),
     erlxslt:set_xslt(X, "style.xsl", stylesheet()),
     erlxslt:set_xml(X, "doc.xml", "<document>Hello World</document>"),
+    erlxslt:set_params(X, [{"foo","bar"},{"baz","foobar"}]),
     {ok, Data} = erlxslt:process(X),
     io:format("Result: ~p~n", [Data]),
     erlxslt:exit(X).
@@ -31,6 +32,7 @@ test_multi(_, 0) -> ok;
 test_multi(X, N) ->
     erlxslt:set_xslt(X, "style.xsl", stylesheet()),
     erlxslt:set_xml(X, "doc.xml", "<document>Hello World</document>"),
+    erlxslt:set_params(X, [{"foo","bar"},{"baz","foobar"}]),
     {ok, _} = erlxslt:process(X),
     test_multi(X, N - 1).
 

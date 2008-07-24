@@ -14,6 +14,7 @@
 #define CMD_SET_XSLT 1
 #define CMD_SET_XML 2
 #define CMD_PROCESS 3
+#define CMD_SET_PARAMS 6
 #define RPL_RESULT 4
 #define RPL_ERROR 5
 
@@ -23,6 +24,39 @@
   write(STDOUT_FILENO, &len, 4);
   write(STDOUT_FILENO, s, strlen(s));
   }*/
+
+char **parse_params(char *buf_, int buflen)
+{
+  static char **params = NULL;
+  static char *buf = NULL;
+  int i, n = 0;
+
+  if (params)
+    free(params);
+
+  if (buf)
+    free(buf);
+  buf = malloc(buflen);
+  memcpy(buf, buf_, buflen);
+
+  /* Count \0 */
+  for(i = 0; i < buflen; ++i)
+    if (buf[i] == 0)
+      n++;
+
+  params = malloc((n + 1) * sizeof(char *));
+  params[0] = buf;
+  n = 1;
+  for(i = 0; i < buflen; ++i)
+    if (buf[i] == 0)
+    {
+      params[n] = buf + i + 1;
+      n++;
+    }
+  params[n - 1] = NULL;
+
+  return params;
+}
 
 void send_length(uint32_t len)
 {
@@ -55,7 +89,8 @@ int main()
   xmlChar *xmlbuf = NULL;
   xsltSecurityPrefsPtr sec;
   int xmlbufsize;
-  const char *params[] = {NULL};
+  const char *default_params[] = {NULL};
+  char **params = (char **)default_params;
   char *baseuri;
   int baseurilen;
 
@@ -116,8 +151,11 @@ int main()
       baseurilen = strlen(baseuri);
       xml = xmlReadMemory(baseuri + baseurilen + 1, rlen - baseurilen - 2, baseuri, NULL, 0);
       break;
+    case CMD_SET_PARAMS:
+      params = parse_params(rbuf + 1, rlen - 1);
+      break;
     case CMD_PROCESS:
-      res = xsltApplyStylesheet(xslt, xml, params);
+      res = xsltApplyStylesheet(xslt, xml, (const char **)params);
       if (res)
       {
         xmlDocDumpFormatMemory(res, &xmlbuf, &xmlbufsize, 1);
