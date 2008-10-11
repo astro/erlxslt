@@ -10,20 +10,44 @@
 #include <libxslt/security.h>
 #include <libxslt/xsltutils.h>
 #include <libexslt/exslt.h>
+#include <libexslt/exslt.h>
+#include <libxslt/extensions.h>
+#include <ei.h>
+#include <libxml/xpathInternals.h>
+
 
 #define CMD_SET_XSLT 1
 #define CMD_SET_XML 2
 #define CMD_PROCESS 3
-#define CMD_SET_PARAMS 6
-#define RPL_RESULT 4
-#define RPL_ERROR 5
+#define CMD_REGISTER 4
+#define CMD_SET_PARAMS 5
+#define RPL_RESULT 0
+#define RPL_ERROR 1
+#define RPL_CALLBACK 2
 
-/*void send_string(const char *s)
+
+void send_length(uint32_t len)
 {
-  uint32_t len = htonl(strlen(s));
+  len = htonl(len);
   write(STDOUT_FILENO, &len, 4);
+}
+
+void send_byte(int b)
+{
+  char sbuf[1] = {b};
+  write(STDOUT_FILENO, sbuf, 1);
+}
+
+void send_buffer(const char *s, uint32_t len)
+{
+  send_length(len);
   write(STDOUT_FILENO, s, strlen(s));
-  }*/
+}
+
+void send_string(const char *s)
+{
+  send_buffer(s, strlen(s));
+}
 
 char **parse_params(char *buf_, int buflen)
 {
@@ -58,12 +82,6 @@ char **parse_params(char *buf_, int buflen)
   return params;
 }
 
-void send_length(uint32_t len)
-{
-  uint32_t l = htonl(len);
-  write(STDOUT_FILENO, &l, 4);
-}
-
 #define ERRBUFSIZE 4096
 static char errbuf[ERRBUFSIZE];
 
@@ -76,6 +94,84 @@ void error_func(void *ctx, const char *fmt, ...)
   va_end(ap);
 }
 
+void xpath2ei(ei_x_buff *x, xmlXPathObjectPtr obj, xmlDocPtr doc)
+{
+  switch(obj->type)
+  {
+  case XPATH_BOOLEAN:
+    ei_x_encode_atom(x, obj->boolval ? "true" : "false");
+    break;
+  case XPATH_NUMBER:
+    if (obj->floatval - (int)obj->floatval != 0)
+      ei_x_encode_double(x, obj->floatval);
+    else
+      ei_x_encode_longlong(x, obj->floatval);
+    break;
+  case XPATH_STRING:
+    ei_x_encode_string(x, (char *)obj->stringval);
+    break;
+  default:
+    ei_x_encode_atom(x, "unknown");
+  }
+}
+
+void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
+{
+  const xmlChar *name, *xmlns;
+  int i;
+  ei_x_buff arguments;
+  fprintf(stderr, "callback %i\n",nargs);
+
+  uint32_t rlen;
+  int rindex = 0, version;
+  char *rbuf = NULL;
+  ei_term term;
+
+  xmlXPathObjectPtr ret = NULL;
+
+  if (ctxt == NULL || ctxt->context == NULL)
+    return;
+
+  name = ctxt->context->function;
+  xmlns = ctxt->context->functionURI;
+
+  ei_x_new_with_version(&arguments);
+  ei_x_encode_list_header(&arguments, nargs + 2);
+  ei_x_encode_string(&arguments, (char *)xmlns);
+  ei_x_encode_string(&arguments, (char *)name);
+  for(i = nargs; i > 0; i--)
+  {
+    xmlXPathObjectPtr obj = valuePop(ctxt);
+    xpath2ei(&arguments, obj, ctxt->context->doc);
+    xmlXPathFreeObject(obj);
+  }
+  ei_x_encode_empty_list(&arguments);
+
+  send_length(arguments.index + 1);
+  send_byte(RPL_CALLBACK);
+  write(STDOUT_FILENO, arguments.buff, arguments.index);
+  ei_x_free(&arguments);
+
+  if (read(STDIN_FILENO, &rlen, 4) != 4)
+    exit(-1);
+  rlen = ntohl(rlen);
+  rbuf = malloc(rlen);
+  if (read(STDIN_FILENO, rbuf, rlen) != rlen)
+    exit(-1);
+
+  ei_decode_version(rbuf, &rindex, &version);
+  ei_decode_ei_term(rbuf, &rindex, &term);
+  switch(term.ei_type)
+  {
+  case ERL_ATOM_EXT:
+    ret = xmlXPathWrapString(xmlStrdup(term.value.atom_name));
+    break;
+    /* TODO */
+  }
+  valuePush(ctxt, ret);
+
+  free(rbuf);
+}
 
 extern int xmlLoadExtDtdDefaultValue;
 
@@ -83,7 +179,6 @@ int main()
 {
   uint32_t rlen, running = 1, rbuflen = 0;
   char *rbuf = NULL;
-  char sbuf[16];
   xsltStylesheetPtr xslt = NULL;
   xmlDocPtr xml = NULL, xsltDoc, res;
   xmlChar *xmlbuf = NULL;
@@ -93,6 +188,7 @@ int main()
   char **params = (char **)default_params;
   char *baseuri;
   int baseurilen;
+  char *name, *xmlns;
 
   xmlSetGenericErrorFunc(NULL, error_func);
   xsltSetGenericErrorFunc(NULL, error_func);
@@ -109,6 +205,11 @@ int main()
   exsltRegisterAll();
 
   strcpy(errbuf, "");
+
+  xmlSubstituteEntitiesDefault(1);
+  xmlLoadExtDtdDefaultValue = 1;
+  exsltRegisterAll();
+
   while(running)
   {
     if (read(STDIN_FILENO, &rlen, 4) != 4)
@@ -127,6 +228,7 @@ int main()
     switch(rbuf[0])
     {
     case CMD_SET_XSLT:
+      //fprintf(stderr, "CMD_SET_XSLT\n");
       if (xslt)
       {
         xsltFreeStylesheet(xslt);
@@ -142,6 +244,7 @@ int main()
       }
       break;
     case CMD_SET_XML:
+      //fprintf(stderr, "CMD_SET_XML\n");
       if (xml)
       {
         xmlFreeDoc(xml);
@@ -158,24 +261,29 @@ int main()
       res = xsltApplyStylesheet(xslt, xml, (const char **)params);
       if (res)
       {
+        char *mediaType = (xslt->mediaType ? xslt->mediaType : "");
         xsltSaveResultToString(&xmlbuf, &xmlbufsize, res, xslt);
         xmlFreeDoc(res);
 
-        send_length(xmlbufsize + 1 + strlen(xslt->mediaType) + 1);
-        sbuf[0] = RPL_RESULT;
-        write(STDOUT_FILENO, sbuf, 1);
-        write(STDOUT_FILENO, xslt->mediaType, strlen(xslt->mediaType) + 1);
+        send_length(1 + strlen(mediaType) + 1 + xmlbufsize);
+        send_byte(RPL_RESULT);
+        write(STDOUT_FILENO, mediaType, strlen(mediaType) + 1);
         write(STDOUT_FILENO, xmlbuf, xmlbufsize);
         xmlFree(xmlbuf);
       }
       else
       {
         send_length(1 + strlen(errbuf));
-        sbuf[0] = RPL_ERROR;
-        write(STDOUT_FILENO, sbuf, 1);
+        send_byte(RPL_ERROR);
         write(STDOUT_FILENO, errbuf, strlen(errbuf));
       }
       strcpy(errbuf, "");
+      break;
+    case CMD_REGISTER:
+      xmlns = rbuf + 1;
+      name = xmlns + strlen(xmlns) + 1;
+      xsltRegisterExtModuleFunction((xmlChar *)name, (xmlChar *)xmlns,
+                                    xmlXPathFuncCallback);
       break;
     }
   }

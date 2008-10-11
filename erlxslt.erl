@@ -10,20 +10,22 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, set_xslt/3, set_xml/3, set_params/2, process/1, exit/1]).
+-export([start_link/0, register_function/4, set_xslt/3, set_xml/3, set_params/2, process/1, stop/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--record(state, {port, requestor = none}).
+-record(state, {port, functions = []}).
 
 -define(CMD_SET_XSLT, 1).
 -define(CMD_SET_XML, 2).
 -define(CMD_PROCESS, 3).
--define(CMD_SET_PARAMS, 6).
--define(RPL_RESULT, 4).
--define(RPL_ERROR, 5).
+-define(CMD_REGISTER, 4).
+-define(CMD_SET_PARAMS, 5).
+-define(RPL_RESULT, 0).
+-define(RPL_ERROR, 1).
+-define(RPL_CALLBACK, 2).
 
 %%====================================================================
 %% API
@@ -41,8 +43,11 @@ set_params(X, Params) ->
 process(X) ->
     gen_server:call(X, {process}).
 
-exit(X) ->
-    gen_server:cast(X, {exit}).    
+register_function(X, Xmlns, Name, Fun) ->
+    gen_server:call(X, {register_function, Xmlns, Name, Fun}).
+
+stop(X) ->
+    gen_server:cast(X, {stop}).    
 
 %%--------------------------------------------------------------------
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
@@ -63,9 +68,7 @@ start_link() ->
 %% Description: Initiates the server
 %%--------------------------------------------------------------------
 init([]) ->
-    process_flag(trap_exit, true),
-    %Port = open_port({spawn, "valgrind -v --leak-check=full ./erlxslt"}, [{packet, 4}]),
-    Port = open_port({spawn, "./erlxslt"}, [{packet, 4}]),
+    Port = open_port({spawn, "./erlxslt"}, [{packet, 4}, binary]),
     {ok, #state{port=Port}}.
 
 %%--------------------------------------------------------------------
@@ -77,10 +80,16 @@ init([]) ->
 %%                                      {stop, Reason, State}
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
-handle_call({process}, From, State = #state{port = Port,
-					    requestor = none}) ->
+handle_call({process}, _From, State = #state{port = Port}) ->
     port_command(Port, [?CMD_PROCESS]),
-    {noreply, State#state{requestor = From}}.
+    Result = wait_result(State),
+    {reply, Result, State};
+
+handle_call({register_function, Xmlns, Name, Fun}, _From,
+	    State = #state{functions = Functions,
+			   port = Port}) ->
+    port_command(Port, lists:flatten([4, Xmlns, 0, Name])),
+    {reply, ok, State#state{functions = [{Xmlns, Name, Fun} | Functions]}}.
 
 %%--------------------------------------------------------------------
 %% Function: handle_cast(Msg, State) -> {noreply, State} |
@@ -103,7 +112,7 @@ handle_cast({set_params, Params}, State = #state{port = Port}) ->
 		      end, Params)),
     port_command(Port, [?CMD_SET_PARAMS | Buf]),
     {noreply, State};
-handle_cast({exit}, State) ->
+handle_cast({stop}, State) ->
     {stop, normal, State}.
 
 %%--------------------------------------------------------------------
@@ -112,21 +121,6 @@ handle_cast({exit}, State) ->
 %%                                       {stop, Reason, State}
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
-handle_info({Port, {data, Data}}, State = #state{port = Port,
-						   requestor = Requestor}) ->
-    case Data of
-	[?RPL_RESULT | Result] ->
-	    {Mime, [0 | Body]} = lists:split(string:chr(Result, 0) - 1, Result),
-	    gen_server:reply(Requestor, {ok, Mime, Body});
-	[?RPL_ERROR | Error] ->
-	    gen_server:reply(Requestor, {error, Error})
-    end,
-    {noreply, State#state{requestor = none}};
-handle_info({'EXIT', Port, Reason}, State = #state{port = Port,
-						    requestor = Requestor})
-  when Requestor =/= none ->
-    gen_server:reply(Requestor, {error, Reason}),
-    {stop, Reason, State};
 handle_info(_Info, State) ->
     io:format("handle_info(~p, ~p)~n", [_Info, State]),
     {noreply, State}.
@@ -152,3 +146,44 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
+
+wait_result(#state{functions = Functions} = State) ->
+    receive
+	{_, {data, <<?RPL_RESULT, Result/binary>>}} ->
+	    Result2 = binary_to_list(Result),
+	    {MediaType, [0 | Body]} =
+		lists:split(string:chr(Result2, 0) - 1, Result2),
+	    {ok, MediaType, Body};
+	{Port, {data, <<?RPL_CALLBACK, Call/binary>>}} ->
+	    io:format("call ~p in ~p~n",
+		      [binary_to_term(Call),
+		       Functions]),
+	    Retval = call_function(binary_to_term(Call),
+				   Functions),
+	    io:format("retval: ~p~n",[term_to_binary(Retval)]),
+	    port_command(Port, term_to_binary(Retval)),
+	    wait_result(State)
+    end.
+
+call_function([Xmlns, Name | Args] = Call, [{Xmlns, Name, Fun} | Functions]) ->
+    ArgsLen = length(Args),
+    case erlang:fun_info(Fun, arity) of
+	{arity, ArgsLen} ->
+	    Args2 = lists:reverse(Args),
+	    try apply(Fun, Args2) of
+		R -> R
+	    catch _:Reason ->
+			  error_logger:error_msg("Error calling XSLT ext function with arguments:~n~p ~p:~nReason: ~p~n",
+						 [Fun, Args2, Reason]),
+			  ""
+		  end;
+	_ ->
+	    call_function(Call, Functions)
+    end;
+call_function(Call, [_ | Functions]) ->
+    call_function(Call, Functions);
+call_function([Xmlns, Name | Args], []) ->
+    error_logger:error_msg("Unable to find registered function {~s}~s with arity ~B~n",
+			   [Xmlns, Name, length(Args)]),
+    "".
+
