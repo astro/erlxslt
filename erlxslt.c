@@ -75,6 +75,7 @@ char **parse_params(char *buf_, int buflen)
     if (buf[i] == 0)
     {
       params[n] = buf + i + 1;
+      printf("params[%i] = %s\n", n, buf + i + 1);
       n++;
     }
   params[n - 1] = NULL;

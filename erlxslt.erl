@@ -110,6 +110,7 @@ handle_cast({set_params, Params}, State = #state{port = Port}) ->
 	    lists:map(fun({K, V}) ->
 			      lists:append([K, [0], V, [0]])
 		      end, Params)),
+    io:format("params buf: ~p~n",[Buf]),
     port_command(Port, [?CMD_SET_PARAMS | Buf]),
     {noreply, State};
 handle_cast({stop}, State) ->
