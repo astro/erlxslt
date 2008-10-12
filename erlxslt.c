@@ -125,7 +125,7 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
 
   uint32_t rlen;
   int rindex = 0, version;
-  char *rbuf = NULL;
+  char *rbuf = NULL, *s;
   ei_term term;
 
   xmlXPathObjectPtr ret = NULL;
@@ -165,9 +165,51 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
   switch(term.ei_type)
   {
   case ERL_ATOM_EXT:
-    ret = xmlXPathWrapString(xmlStrdup(term.value.atom_name));
+    if (!strcmp(term.value.atom_name, "true"))
+      ret = xmlXPathNewBoolean(1);
+    else if (!strcmp(term.value.atom_name, "false"))
+      ret = xmlXPathNewBoolean(0);
+    else
+      ret = xmlXPathWrapString(xmlStrdup((xmlChar *)term.value.atom_name));
     break;
-    /* TODO */
+  case ERL_SMALL_INTEGER_EXT:
+  case ERL_INTEGER_EXT:
+    ret = xmlXPathNewFloat(term.value.i_val);
+    break;
+    //case ERL_LIST_EXT:
+  case ERL_STRING_EXT:
+    s = xmlMemMalloc(term.size + 1);
+    ei_decode_string(rbuf, &rindex, s);
+    fprintf(stderr, "string retval: %s\n", s);
+    ret = xmlXPathWrapString(xmlStrdup((xmlChar *)s));
+    xmlMemFree(s);
+    break;
+  case ERL_SMALL_TUPLE_EXT:
+    if (term.arity == 2)
+    {
+      ei_decode_ei_term(rbuf, &rindex, &term);
+      if (term.ei_type == ERL_ATOM_EXT && !strcmp(term.value.atom_name, "tree"))
+      {
+        ei_decode_ei_term(rbuf, &rindex, &term);
+        if (term.ei_type == ERL_STRING_EXT)
+        {
+          s = xmlMemMalloc(term.size + 1);
+          ei_decode_string(rbuf, &rindex, s);
+          fprintf(stderr, "tree retval: %s\n", s);
+          xmlDocPtr doc = xmlParseDoc((xmlChar *)s);
+          ret = xmlXPathNewNodeSet((xmlNode *)doc->children);
+        }
+        else
+          fprintf(stderr, "not really tree\n");
+      }
+      else
+        fprintf(stderr, "not tree\n");
+    }
+    else
+      fprintf(stderr, "not 2-tuple\n");
+    break;
+  default:
+    fprintf(stderr, "unknown type: %i\n", term.ei_type);
   }
   valuePush(ctxt, ret);
 
