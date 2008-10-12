@@ -121,7 +121,7 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
   const xmlChar *name, *xmlns;
   int i;
   ei_x_buff arguments;
-  fprintf(stderr, "callback %i\n",nargs);
+  //fprintf(stderr, "callback %i\n",nargs);
 
   uint32_t rlen;
   int rindex = 0, version;
@@ -180,7 +180,6 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
   case ERL_STRING_EXT:
     s = xmlMemMalloc(term.size + 1);
     ei_decode_string(rbuf, &rindex, s);
-    fprintf(stderr, "string retval: %s\n", s);
     ret = xmlXPathWrapString(xmlStrdup((xmlChar *)s));
     xmlMemFree(s);
     break;
@@ -195,7 +194,6 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
         {
           s = xmlMemMalloc(term.size + 1);
           ei_decode_string(rbuf, &rindex, s);
-          fprintf(stderr, "tree retval: %s\n", s);
           xmlDocPtr doc = xmlParseDoc((xmlChar *)s);
           ret = xmlXPathNewNodeSet((xmlNode *)doc->children);
         }

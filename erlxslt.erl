@@ -156,12 +156,8 @@ wait_result(#state{functions = Functions} = State) ->
 		lists:split(string:chr(Result2, 0) - 1, Result2),
 	    {ok, MediaType, Body};
 	{Port, {data, <<?RPL_CALLBACK, Call/binary>>}} ->
-	    io:format("call ~p in ~p~n",
-		      [binary_to_term(Call),
-		       Functions]),
 	    Retval = call_function(binary_to_term(Call),
 				   Functions),
-	    io:format("retval: ~p (~p)~n",[term_to_binary(Retval), Retval]),
 	    port_command(Port, term_to_binary(Retval)),
 	    wait_result(State)
     end.
