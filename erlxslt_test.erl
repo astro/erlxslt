@@ -124,7 +124,6 @@ test_multi(X, N) ->
 <extfun2/>
 </r>"),
     %%erlxslt:set_params(X, [{"foo","bar"},{"baz","foobar"}]),
-io:format("process ~p~n",[N]),
     {ok, "text/plain", _} = erlxslt:process(X),
     test_multi(X, N - 1).
 
