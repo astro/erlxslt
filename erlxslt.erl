@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, register_function/4, set_xslt/3, set_xml/3, set_params/2, process/1, stop/1]).
+-export([start_link/0, start_link/1, register_function/4, set_xslt/3, set_xml/3, set_params/2, process/1, stop/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -54,7 +54,10 @@ stop(X) ->
 %% Description: Starts the server
 %%--------------------------------------------------------------------
 start_link() ->
-    gen_server:start_link(?MODULE, [], []).
+    start_link("./erlxslt").
+
+start_link(BinPath) ->
+    gen_server:start_link(?MODULE, [BinPath], []).
 
 %%====================================================================
 %% gen_server callbacks
@@ -67,8 +70,8 @@ start_link() ->
 %%                         {stop, Reason}
 %% Description: Initiates the server
 %%--------------------------------------------------------------------
-init([]) ->
-    Port = open_port({spawn, "./erlxslt"}, [{packet, 4}, binary]),
+init([BinPath]) ->
+    Port = open_port({spawn, BinPath}, [{packet, 4}, binary]),
     {ok, #state{port=Port}}.
 
 %%--------------------------------------------------------------------
