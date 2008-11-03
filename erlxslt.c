@@ -135,6 +135,7 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
 
   name = ctxt->context->function;
   xmlns = ctxt->context->functionURI;
+  fprintf(stderr, "callback {%s}%s\n", xmlns, name);
 
   ei_x_new_with_version(&arguments);
   ei_x_encode_list_header(&arguments, nargs + 2);
@@ -256,15 +257,17 @@ int main()
     if (read(STDIN_FILENO, &rlen, 4) != 4)
       exit(1);
     rlen = ntohl(rlen);
-    //fprintf(stderr, "Len: %i\n", rlen);
-    if (rlen > rbuflen)
+    //fprintf(stderr, "expecting %i bytes\n", rlen);
+    if (rlen >= rbuflen)
     {
       if (rbuf)
         free(rbuf);
-      rbuf = malloc(rlen);
+      rbuf = malloc(rlen + 1);
     }
     if (read(STDIN_FILENO, rbuf, rlen) != rlen)
       exit(1);
+    //fprintf(stderr, "read %i bytes\n", rlen);
+    rbuf[rlen] = '\0';
 
     switch(rbuf[0])
     {
@@ -299,9 +302,11 @@ int main()
       params = parse_params(rbuf + 1, rlen - 1);
       break;
     case CMD_PROCESS:
+      //fprintf(stderr, "applying\n");
       res = xsltApplyStylesheet(xslt, xml, (const char **)params);
       if (res)
       {
+        //fprintf(stderr, "applied\n");
         char *mediaType = (xslt->mediaType ? xslt->mediaType : "");
         xsltSaveResultToString(&xmlbuf, &xmlbufsize, res, xslt);
         xmlFreeDoc(res);
@@ -314,6 +319,7 @@ int main()
       }
       else
       {
+        //fprintf(stderr, "failed\n");
         send_length(1 + strlen(errbuf));
         send_byte(RPL_ERROR);
         write(STDOUT_FILENO, errbuf, strlen(errbuf));
@@ -325,6 +331,8 @@ int main()
       name = xmlns + strlen(xmlns) + 1;
       xsltRegisterExtModuleFunction((xmlChar *)name, (xmlChar *)xmlns,
                                     xmlXPathFuncCallback);
+      //fprintf(stderr, "registered {%s}%s\n", xmlns, name);
+
       break;
     }
   }
