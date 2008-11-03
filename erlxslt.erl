@@ -162,7 +162,10 @@ wait_result(#state{functions = Functions} = State) ->
 	    Retval = call_function(binary_to_term(Call),
 				   Functions),
 	    port_command(Port, term_to_binary(Retval)),
-	    wait_result(State)
+	    wait_result(State);
+	{_, {data, <<?RPL_ERROR, Error/binary>>}} ->
+	    error_logger:error_msg("XSLT error: ~s~n", [Error]),
+	    {error, xslt}
     end.
 
 call_function([Xmlns, Name | Args] = Call, [{Xmlns, Name, Fun} | Functions]) ->
