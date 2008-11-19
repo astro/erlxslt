@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <assert.h>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <libxslt/xslt.h>
@@ -47,6 +48,30 @@ void send_buffer(const char *s, uint32_t len)
 void send_string(const char *s)
 {
   send_buffer(s, strlen(s));
+}
+
+void recv_buffer(char **buf, int *buflen)
+{
+  int rlen;
+  char *b;
+
+  assert(read(STDIN_FILENO, &rlen, 4) == 4);
+  rlen = ntohl(rlen);
+
+  if (*buf)
+    free(*buf);
+  *buf = malloc(rlen + 1); /* space for one '\0' */
+  *buflen = rlen;
+
+  b = *buf;
+  while(rlen > 0)
+  {
+    int c;
+    c = read(STDIN_FILENO, b, rlen);
+    assert(c > 0);
+    b += c;
+    rlen -= c;
+  }
 }
 
 char **parse_params(char *buf_, int buflen)
@@ -121,11 +146,10 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
   const xmlChar *name, *xmlns;
   int i;
   ei_x_buff arguments;
-  //fprintf(stderr, "callback %i\n",nargs);
 
-  uint32_t rlen;
-  int rindex = 0, version;
-  char *rbuf = NULL, *s;
+  int rindex = 0, version, rlen = 0;
+  static char *rbuf = NULL;
+  char *s;
   ei_term term;
 
   xmlXPathObjectPtr ret = NULL;
@@ -135,7 +159,6 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
 
   name = ctxt->context->function;
   xmlns = ctxt->context->functionURI;
-  fprintf(stderr, "callback {%s}%s\n", xmlns, name);
 
   ei_x_new_with_version(&arguments);
   ei_x_encode_list_header(&arguments, nargs + 2);
@@ -154,12 +177,7 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
   write(STDOUT_FILENO, arguments.buff, arguments.index);
   ei_x_free(&arguments);
 
-  if (read(STDIN_FILENO, &rlen, 4) != 4)
-    exit(-1);
-  rlen = ntohl(rlen);
-  rbuf = malloc(rlen);
-  if (read(STDIN_FILENO, rbuf, rlen) != rlen)
-    exit(-1);
+  recv_buffer(&rbuf, &rlen);
 
   ei_decode_version(rbuf, &rindex, &version);
   ei_decode_ei_term(rbuf, &rindex, &term);
@@ -220,15 +238,13 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
     fprintf(stderr, "unknown type: %i\n", term.ei_type);
   }
   valuePush(ctxt, ret);
-
-  free(rbuf);
 }
 
 extern int xmlLoadExtDtdDefaultValue;
 
 int main()
 {
-  uint32_t rlen, running = 1, rbuflen = 0;
+  int running = 1, rlen = 0;
   char *rbuf = NULL;
   xsltStylesheetPtr xslt = NULL;
   xmlDocPtr xml = NULL, xsltDoc, res;
@@ -263,19 +279,7 @@ int main()
 
   while(running)
   {
-    if (read(STDIN_FILENO, &rlen, 4) != 4)
-      exit(1);
-    rlen = ntohl(rlen);
-    //fprintf(stderr, "expecting %i bytes\n", rlen);
-    if (rlen >= rbuflen)
-    {
-      if (rbuf)
-        free(rbuf);
-      rbuf = malloc(rlen + 1);
-    }
-    if (read(STDIN_FILENO, rbuf, rlen) != rlen)
-      exit(1);
-    //fprintf(stderr, "read %i bytes\n", rlen);
+    recv_buffer(&rbuf, &rlen);
     rbuf[rlen] = '\0';
 
     switch(rbuf[0])
