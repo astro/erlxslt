@@ -101,11 +101,11 @@ handle_call({register_function, Xmlns, Name, Fun}, _From,
 %% Description: Handling cast messages
 %%--------------------------------------------------------------------
 handle_cast({set_xslt, Uri, Xslt}, State = #state{port = Port}) ->
-    Buf = lists:append([[?CMD_SET_XSLT | Uri], [0], Xslt]),
+    Buf = [?CMD_SET_XSLT | Uri] ++ [0 | Xslt],
     port_command(Port, Buf),
     {noreply, State};
 handle_cast({set_xml, Uri, Xml}, State = #state{port = Port}) ->
-    Buf = lists:append([[?CMD_SET_XML | Uri], [0], Xml]),
+    Buf = [?CMD_SET_XML | Uri] ++ [0 | Xml],
     port_command(Port, Buf),
     {noreply, State};
 handle_cast({set_params, Params}, State = #state{port = Port}) ->
@@ -173,13 +173,15 @@ call_function([Xmlns, Name | Args] = Call, [{Xmlns, Name, Fun} | Functions]) ->
     case erlang:fun_info(Fun, arity) of
 	{arity, ArgsLen} ->
 	    Args2 = lists:reverse(Args),
-	    try apply(Fun, Args2) of
+	    error_logger:info_msg("Calling XSLT ext function with arguments:~n{~s}~s ~p ~p",
+				   [Xmlns, Name, Fun, Args2]),
+	    case (catch apply(Fun, Args2)) of
+		{'EXIT', Reason} ->
+		    error_logger:error_msg("Error calling XSLT ext function with arguments:~n{~s}~s ~p ~p:~nReason: ~p~n",
+					   [Xmlns, Name, Fun, Args2, Reason]),
+		    "";
 		R -> R
-	    catch _:Reason ->
-			  error_logger:error_msg("Error calling XSLT ext function with arguments:~n~p ~p:~nReason: ~p~n",
-						 [Fun, Args2, Reason]),
-			  ""
-		  end;
+	    end;
 	_ ->
 	    call_function(Call, Functions)
     end;

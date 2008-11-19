@@ -200,7 +200,12 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
             xmlFreeDoc(doc);
           doc = xmlParseDoc((xmlChar *)s);
           xmlMemFree(s);
-          ret = xmlXPathNewNodeSet((xmlNode *)doc->children);
+          if (doc)
+            ret = xmlXPathNewNodeSet((xmlNode *)doc->children);
+          else
+          {
+            fprintf(stderr, "Callback result XML parsing error\n");
+          }
         }
         else
           fprintf(stderr, "not really tree\n");
