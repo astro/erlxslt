@@ -195,7 +195,11 @@ void xmlXPathFuncCallback(xmlXPathParserContextPtr ctxt, int nargs)
         {
           s = xmlMemMalloc(term.size + 1);
           ei_decode_string(rbuf, &rindex, s);
-          xmlDocPtr doc = xmlParseDoc((xmlChar *)s);
+          static xmlDocPtr doc = NULL;
+          if (doc)
+            xmlFreeDoc(doc);
+          doc = xmlParseDoc((xmlChar *)s);
+          xmlMemFree(s);
           ret = xmlXPathNewNodeSet((xmlNode *)doc->children);
         }
         else
